@@ -1,0 +1,9 @@
+# Week 1 — core runtime stack (extend in later batches)
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+sqlalchemy>=2.0,<3
+psycopg2-binary>=2.9,<3
+pgvector>=0.3,<1
+pydantic>=2.10,<3
+pydantic-settings>=2.6,<3
+python-dotenv>=1.0,<2
