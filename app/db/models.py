@@ -11,10 +11,11 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstr
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import get_settings
 from app.db.base import Base
 
-# Fixed pgvector column width; keep aligned with `EMBEDDING_DIMENSION` / chosen embedding model.
-EMBEDDING_VECTOR_DIMENSION: int = 1536
+# Keep pgvector width aligned with configured embedding model dimension.
+EMBEDDING_VECTOR_DIMENSION: int = get_settings().embedding_dimension
 
 
 class Document(Base):
