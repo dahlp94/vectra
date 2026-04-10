@@ -61,6 +61,67 @@ Enterprise knowledge is fragmented across wikis, runbooks, tickets, and policy f
 
 ## Repository Structure
 
+```
+vectra/
+├── app/
+│   ├── api/
+│   │   ├── deps.py
+│   │   ├── main.py
+│   │   └── routes/
+│   │       ├── documents.py
+│   │       ├── health.py
+│   │       └── ingest.py
+│   ├── core/
+│   │   ├── config.py
+│   │   └── logging.py
+│   ├── db/
+│   │   ├── base.py
+│   │   ├── init_db.py
+│   │   ├── models.py
+│   │   └── session.py
+│   ├── embeddings/
+│   │   ├── provider.py
+│   │   └── service.py
+│   ├── ingestion/
+│   │   ├── chunker.py
+│   │   ├── loader.py
+│   │   ├── metadata.py
+│   │   ├── parser.py
+│   │   └── pipeline.py
+│   ├── retrieval/
+│   │   ├── filters.py
+│   │   ├── service.py
+│   │   └── vector_store.py
+│   ├── schemas/
+│   │   ├── document.py
+│   │   ├── ingest.py
+│   │   └── query.py
+│   └── services/
+│       └── document_service.py
+├── data/
+│   └── sample_docs/
+│       ├── architecture/
+│       ├── incidents/
+│       ├── policies/
+│       └── runbooks/
+├── scripts/
+│   ├── create_tables.py
+│   ├── ingest_sample_docs.py
+│   └── seed_sample_docs.py
+├── sql/
+│   └── init_pgvector.sql
+├── tests/
+│   ├── conftest.py
+│   ├── test_chunker.py
+│   ├── test_health.py
+│   ├── test_ingestion.py
+│   └── test_retrieval.py
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
 | Path | Purpose |
 |------|---------|
 | `app/api/` | FastAPI app factory and route modules (`health`, `ingest`, `documents`). |
