@@ -6,7 +6,6 @@ The codebase is structured for clarity and extension. It is intended to run **lo
 
 The product direction includes **graph-based context** and deeper platform concerns; those are **not** implemented in the current MVP.
 
----
 
 ## Why this project
 
@@ -14,7 +13,6 @@ Enterprise knowledge lives in runbooks, policies, tickets, and architecture note
 
 Vectra addresses that **AI infrastructure** problem: durable storage, a single embedding space, explicit retrieval, and an API contract that exposes **what** was used to answer.
 
----
 
 ## Core features (MVP)
 
@@ -27,7 +25,6 @@ Vectra addresses that **AI infrastructure** problem: durable storage, a single e
 | **RAG** | Grounded prompts from retrieved chunks, **OpenAI Chat Completions** for answers (configurable model), **citations** and **retrieved chunk snippets** in API responses; safe fallback when context is missing or below relevance threshold. |
 | **API** | FastAPI: health, folder ingestion, document listing/detail, RAG query. |
 
----
 
 ## Architecture
 
@@ -70,7 +67,6 @@ Data and control flow are layered so each stage has a clear responsibility.
 - **RAG orchestration** — Build context from retrieved chunks, call the LLM with a grounded system/user style prompt, map results to **citations** and **retrieved chunk summaries**.
 - **API** — Thin routes delegating to services; Pydantic request/response models.
 
----
 
 ## RAG pipeline (query path)
 
@@ -79,7 +75,6 @@ Data and control flow are layered so each stage has a clear responsibility.
 3. **Gate** — If there are no hits or the best score is below an internal threshold, the API returns a short **fallback** answer with **empty** citations and retrieved chunks (no LLM call).
 4. **Generate** — Otherwise, assemble context from chunk text, build a grounded prompt, call **OpenAI Chat Completions**, return **answer**, **citations**, and **retrieved_chunks** (snippets and scores).
 
----
 
 ## Repository structure
 
@@ -105,7 +100,6 @@ vectra/
 └── README.md
 ```
 
----
 
 ## Prerequisites
 
@@ -113,7 +107,6 @@ vectra/
 - **Docker** (for Postgres + pgvector)
 - **OpenAI API key** — used for embeddings and for RAG chat completions in the default configuration
 
----
 
 ## Setup
 
@@ -164,7 +157,6 @@ uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
 
 Interactive docs: `http://localhost:8000/docs`
 
----
 
 ## Demo flow (end-to-end)
 
@@ -250,7 +242,6 @@ Replace `<uuid>` with a real `document_id` from the list response:
 curl -s http://localhost:8000/documents/<uuid>
 ```
 
----
 
 ## API summary
 
@@ -262,7 +253,6 @@ curl -s http://localhost:8000/documents/<uuid>
 | `GET` | `/documents/{document_id}` | Document detail including chunks. `404` if missing. |
 | `POST` | `/query` | Body: `query` (required), optional `top_k`, optional `filters` (e.g. `doc_type`, `team`, `source_path`). Returns grounded **`answer`**, **`citations`**, **`retrieved_chunks`**. Client errors `400`; upstream LLM failures `502` where applicable. |
 
----
 
 ## Tech stack (MVP)
 
@@ -272,7 +262,6 @@ curl -s http://localhost:8000/documents/<uuid>
 - **Config:** Pydantic Settings, `.env`
 - **Embeddings / RAG (default):** OpenAI API (`openai` Python package)
 
----
 
 ## Testing
 
@@ -282,7 +271,6 @@ pytest
 
 Tests cover chunking, ingestion, retrieval (including filters), health, and the query API. They favor **behavior** over heavy mocking where practical.
 
----
 
 ## Future work
 
@@ -295,7 +283,6 @@ Plausible extensions (not in the current MVP):
 - **Observability** — Structured metrics, tracing, and production logging sinks.
 - **Caching** — Embedding and retrieval caches for latency and cost.
 
----
 
 ## Design principles
 
@@ -304,7 +291,6 @@ Plausible extensions (not in the current MVP):
 - **Explicit data model** — Documents, chunks, and embeddings are first-class tables.
 - **Traceability** — RAG responses expose citations and retrieved snippets for inspection and demos.
 
----
 
 ## License and Status
 
