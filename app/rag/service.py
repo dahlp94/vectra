@@ -14,9 +14,9 @@ from app.rag.prompting import assemble_context_block, build_grounded_rag_prompt
 from app.retrieval.service import RetrievalService
 from app.schemas.query import Citation, QueryResponse, RagQueryResponse, RetrievedChunkSummary
 
-_NO_CONTEXT_ANSWER = (
-    "No relevant passages were found in the knowledge base, so I cannot answer from retrieved context."
-)
+MIN_SCORE_THRESHOLD = 0.22
+
+_FALLBACK_ANSWER = "I don't know based on the provided documents."
 _DEFAULT_CHAT_MODEL = "gpt-4o-mini"
 
 
@@ -45,6 +45,15 @@ def _openai_chat_completion(prompt: str, *, model: str | None = None) -> str:
     if not content:
         raise RuntimeError("OpenAI returned an empty completion.")
     return content
+
+
+def _should_fallback(retrieval_response: QueryResponse) -> bool:
+    """True when there are no hits or the best match is below the relevance threshold."""
+    results = retrieval_response.results
+    if not results:
+        return True
+    max_score = max(r.score for r in results)
+    return max_score < MIN_SCORE_THRESHOLD
 
 
 class RAGService:
@@ -84,11 +93,17 @@ class RAGService:
         """
         Run retrieval, then—only if chunks exist—build a grounded prompt and generate an answer.
 
-        When retrieval yields no chunks, returns a safe fallback and skips the LLM.
+        When retrieval yields no chunks or scores below threshold, returns a safe fallback
+        and skips the LLM (no citations or chunk summaries).
         """
         retrieval_response: QueryResponse = self._retrieval.retrieve(query, top_k=top_k, filters=filters)
-        if not retrieval_response.results:
-            return RagQueryResponse(answer=_NO_CONTEXT_ANSWER, citations=[], retrieved_chunks=[])
+        scores = [r.score for r in retrieval_response.results]
+        max_score = max(scores) if scores else None
+        print(f"[RAG debug] retrieval_scores={scores}")
+        print(f"[RAG debug] max_score={max_score}")
+        print(f"[RAG debug] threshold={MIN_SCORE_THRESHOLD}")
+        if _should_fallback(retrieval_response):
+            return RagQueryResponse(answer=_FALLBACK_ANSWER, citations=[], retrieved_chunks=[])
 
         chunk_texts = [r.chunk_text for r in retrieval_response.results]
         context = assemble_context_block(chunk_texts)
