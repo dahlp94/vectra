@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-_DEFAULT_CONTEXT_SEPARATOR = "\n\n---\n\n"
+_CHUNK_SEPARATOR = "\n\n---\n\n"
 
-_GROUNDING_INSTRUCTIONS = """You are answering using only the information in the CONTEXT section below.
+_GROUNDING_INSTRUCTIONS = """You are answering using ONLY the information in the CONTEXT section below.
 
 Rules:
-- Use only facts that are clearly supported by the CONTEXT. Do not use outside knowledge.
-- If the CONTEXT does not contain enough information to answer, reply exactly with: I don't know based on the provided documents.
-- Be concise and direct. If you cite details, they must come from the CONTEXT."""
+- Use ONLY the provided context. Do not use prior knowledge or assumptions.
+- Do NOT reference documents, file paths, URLs, section titles, or sources that are not explicitly present in the context text.
+- If the answer is not directly supported by the context, respond with exactly: I don't know based on the provided documents.
+- Be concise. Every factual claim must be traceable to the numbered passages below."""
 
 
 def normalize_question(question: str) -> str:
@@ -19,17 +20,20 @@ def normalize_question(question: str) -> str:
     return question.strip()
 
 
-def assemble_context_block(chunk_texts: Sequence[str], *, separator: str = _DEFAULT_CONTEXT_SEPARATOR) -> str:
+def assemble_context_block(chunk_texts: Sequence[str], *, separator: str = _CHUNK_SEPARATOR) -> str:
     """
-    Join chunk texts into a single context block for prompting.
+    Join chunk texts into a single numbered context block for prompting.
 
-    Empty strings are skipped so the block stays clean and deterministic.
+    Non-empty chunks are labeled ``[1]``, ``[2]``, ... so boundaries stay clear for the model.
+    Empty strings are skipped.
     """
     parts: list[str] = []
+    index = 1
     for text in chunk_texts:
         cleaned = text.strip()
         if cleaned:
-            parts.append(cleaned)
+            parts.append(f"[{index}]\n{cleaned}")
+            index += 1
     return separator.join(parts)
 
 
@@ -51,6 +55,6 @@ def build_grounded_rag_prompt(*, question: str, context: str) -> str:
     ctx = context.strip()
     return (
         f"{_GROUNDING_INSTRUCTIONS}\n\n"
-        f"CONTEXT:\n{ctx}\n\n"
+        f"CONTEXT (numbered passages; use only these):\n{ctx}\n\n"
         f"QUESTION:\n{q}"
     )
