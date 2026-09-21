@@ -1,194 +1,60 @@
 # Vectra
 
-**Vectra** is a production-style **AI knowledge platform** MVP: it ingests enterprise-style documents from disk, indexes them with **dense embeddings** in **PostgreSQL + pgvector**, runs **metadata-aware semantic retrieval**, and answers questions with a **grounded RAG** layer that returns **citations** and **retrieved chunk summaries**.
+Vectra is a retrieval-augmented generation (RAG) backend for searching internal Markdown and text documents. It converts files into embeddings, stores them in PostgreSQL with pgvector, retrieves relevant passages with optional metadata filters, and generates grounded answers through a FastAPI service.
 
-The codebase is structured for clarity and extension. It is intended to run **locally or via Docker Compose** for demos and portfolio review; it is not a full managed SaaS deployment.
+The project focuses on the core RAG workflow: reliable ingestion, vector retrieval, transparent source context, and clear API boundaries. It runs locally or with Docker Compose.
 
-The product direction includes **graph-based context** and deeper platform concerns; those are **not** implemented in the current MVP.
+## What Vectra does
 
+- Recursively loads `.md` and `.txt` files from a folder.
+- Splits documents into deterministic, overlapping chunks.
+- Generates embeddings with OpenAI `text-embedding-3-small`.
+- Stores documents, chunks, metadata, and vectors in PostgreSQL with pgvector.
+- Replaces previously stored content when the same `source_path` is ingested again.
+- Retrieves the most relevant chunks with cosine similarity.
+- Filters retrieval by `doc_type`, `team`, or `source_path`.
+- Uses retrieved text to generate grounded answers with a configurable OpenAI chat model.
+- Returns the answer together with supporting chunk IDs, document IDs, snippets, and relevance scores.
+- Avoids calling the language model when retrieval is empty or below the relevance threshold.
 
-## Why this project
+## System workflow
 
-Enterprise knowledge lives in runbooks, policies, tickets, and architecture notes. Keyword search often misses paraphrases and cross-references. Teams need **semantic retrieval** over a consistent chunking and embedding pipeline, optional **filters** on document metadata (type, team, path), and **answers grounded in retrieved text** so responses are traceable—not generic chatbot speculation.
-
-Vectra addresses that **AI infrastructure** problem: durable storage, a single embedding space, explicit retrieval, and an API contract that exposes **what** was used to answer.
-
-
-## Core features (MVP)
-
-| Area | What is implemented |
-|------|---------------------|
-| **Ingestion** | Recursive load of `.md` / `.txt`, parsing, deterministic chunking with overlap, metadata extraction (`doc_type`, `title`, `source_path`, `team`). |
-| **Embeddings** | Pluggable provider abstraction; **OpenAI** embeddings (`text-embedding-3-small` by default) batched at ingest and query time. |
-| **Storage** | PostgreSQL with **pgvector** for chunk vectors; relational documents and chunks. Re-ingesting the same `source_path` replaces prior rows. |
-| **Retrieval** | Query embedding, cosine-style similarity search, optional **metadata filters** (`doc_type`, `team`, `source_path`), ranked results with scores. |
-| **RAG** | Grounded prompts from retrieved chunks, **OpenAI Chat Completions** for answers (configurable model), **citations** and **retrieved chunk snippets** in API responses; safe fallback when context is missing or below relevance threshold. |
-| **API** | FastAPI: health, folder ingestion, document listing/detail, RAG query. |
-
-
-## Architecture
-
-Data and control flow are layered so each stage has a clear responsibility.
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                         HTTP API (FastAPI)                       │
-│   /health  /ingest/folder  /documents  /documents/{id}  /query │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        ▼                       ▼                       ▼
-┌───────────────┐     ┌─────────────────┐     ┌───────────────────┐
-│   Ingestion   │     │    Retrieval    │     │   RAG orchestration│
-│   pipeline    │     │    service      │     │   (prompt + LLM)   │
-└───────┬───────┘     └────────┬────────┘     └─────────┬─────────┘
-        │                      │                        │
-        ▼                      ▼                        │
-┌───────────────┐     ┌─────────────────┐              │
-│  Embeddings   │     │  Vector store   │◄─────────────┘
-│  service      │     │  (pgvector SQL)  │
-└───────┬───────┘     └────────┬────────┘
-        │                    │
-        └──────────┬─────────┘
-                   ▼
-        ┌──────────────────────┐
-        │  Storage (Postgres)  │
-        │  documents, chunks,  │
-        │  chunk_embeddings    │
-        └──────────────────────┘
+```mermaid
+flowchart TD
+    A[Markdown and text files] --> B[Parse and chunk]
+    B --> C[Generate embeddings]
+    C --> D[(PostgreSQL + pgvector)]
+    E[User question] --> F[Metadata-filtered vector search]
+    D --> F
+    F --> G{Relevant context found?}
+    G -->|Yes| H[Grounded answer with sources]
+    G -->|No| I[Fallback response]
 ```
 
-**Layers in brief**
+The query path has four steps:
 
-- **Ingestion** — Discover files, parse, chunk, extract metadata, persist documents and chunks, then **embed chunks** and persist **ChunkEmbedding** rows.
-- **Embeddings** — Shared provider settings (model, dimension); used at ingest and at query time for the user question.
-- **Storage** — SQLAlchemy models and sessions; pgvector columns for vectors.
-- **Retrieval** — Embed the query, run similarity search with optional document metadata filters, return ranked `QueryResult` rows.
-- **RAG orchestration** — Build context from retrieved chunks, call the LLM with a grounded system/user style prompt, map results to **citations** and **retrieved chunk summaries**.
-- **API** — Thin routes delegating to services; Pydantic request/response models.
+1. **Embed the question** using the same embedding configuration as the indexed chunks.
+2. **Retrieve context** through pgvector similarity search and optional metadata filters.
+3. **Check relevance** against the configured threshold.
+4. **Generate or abstain** by either sending retrieved context to the language model or returning a fallback response.
 
+## Implemented capabilities
 
-## RAG pipeline (query path)
+| Area | Implementation |
+| --- | --- |
+| Ingestion | Recursive file discovery, Markdown/text parsing, deterministic chunking, overlap, and metadata extraction |
+| Embeddings | Shared provider interface with batched OpenAI embeddings at ingestion and query time |
+| Storage | Relational document and chunk records plus pgvector embeddings in PostgreSQL |
+| Re-ingestion | Existing records are replaced when a matching `source_path` is ingested again |
+| Retrieval | Ranked cosine-similarity search with configurable `top_k` and exact metadata filters |
+| RAG | Context-grounded generation with a relevance gate and fallback behavior |
+| Traceability | Supporting chunk and document identifiers, snippets, and retrieval scores returned with answers |
+| API | Health, folder ingestion, document listing, document detail, and RAG query endpoints |
+| Testing | Coverage for chunking, ingestion, retrieval filters, health checks, and query behavior |
 
-1. **Embed the question** — Same embedding model family as chunks so vectors are comparable.
-2. **Retrieve** — pgvector similarity search over `chunk_embeddings`, joined to documents for metadata; optional filters narrow the corpus.
-3. **Gate** — If there are no hits or the best score is below an internal threshold, the API returns a short **fallback** answer with **empty** citations and retrieved chunks (no LLM call).
-4. **Generate** — Otherwise, assemble context from chunk text, build a grounded prompt, call **OpenAI Chat Completions**, return **answer**, **citations**, and **retrieved_chunks** (snippets and scores).
+## Example request
 
-
-## Repository structure
-
-```text
-vectra/
-├── app/
-│   ├── api/                 # FastAPI app factory, routes (health, ingest, documents, query)
-│   ├── core/                # Settings, logging
-│   ├── db/                  # SQLAlchemy models, session, DB helpers
-│   ├── embeddings/          # Provider + embedding service
-│   ├── ingestion/           # Loader, parser, chunker, metadata, pipeline
-│   ├── rag/                 # Prompting, citations, RAG service
-│   ├── retrieval/           # Filters, vector store, retrieval service
-│   ├── schemas/             # Pydantic models for APIs and query/RAG
-│   └── services/            # Document read logic
-├── data/sample_docs/        # Sample corpus (architecture, runbooks, incidents, policies)
-├── scripts/                 # create_tables, ingest_sample_docs, seed_sample_docs
-├── sql/                     # pgvector extension init for Docker
-├── tests/                   # pytest (chunking, health, ingestion, retrieval, query API)
-├── docker-compose.yml
-├── requirements.txt
-├── .env.example
-└── README.md
-```
-
-
-## Prerequisites
-
-- **Python** 3.11+
-- **Docker** (for Postgres + pgvector)
-- **OpenAI API key** — used for embeddings and for RAG chat completions in the default configuration
-
-
-## Setup
-
-### 1. Virtual environment and dependencies
-
-```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install openai            # Required for OpenAI embeddings and RAG (not pinned in requirements.txt)
-```
-
-### 2. Environment variables
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
-
-- Set **`OPENAI_API_KEY`**.
-- Set **`DATABASE_URL`** to match how you run Postgres.
-
-`docker-compose.yml` publishes Postgres on host port **`5433`** by default (`${POSTGRES_PORT:-5433}:5432`). Example URL:
-
-```bash
-DATABASE_URL=postgresql+psycopg2://vectra:vectra@localhost:5433/vectra
-```
-
-The bundled `.env.example` uses port `5432`; **align the port with Compose** if you use the default Compose mapping.
-
-Other useful settings: `EMBEDDING_MODEL`, `EMBEDDING_DIMENSION`, `LOG_LEVEL`, `APP_ENV`. Optional: **`OPENAI_CHAT_MODEL`** for RAG (defaults to `gpt-4o-mini` in code if unset).
-
-### 3. Database
-
-```bash
-docker compose up -d
-python scripts/create_tables.py
-```
-
-Wait until the Postgres service is healthy (`docker compose ps`).
-
-### 4. Run the API
-
-```bash
-uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Interactive docs: `http://localhost:8000/docs`
-
-
-## Demo flow (end-to-end)
-
-1. **Optional — regenerate sample files** (the repo already includes `data/sample_docs/`):
-
-   ```bash
-   python scripts/seed_sample_docs.py
-   ```
-
-2. **Ingest the sample corpus** (chunks + embeddings; requires network access to OpenAI):
-
-   ```bash
-   python scripts/ingest_sample_docs.py
-   ```
-
-   Alternatively, ingest any folder of `.md`/`.txt` files via **`POST /ingest/folder`** (see below).
-
-3. **Query** with **`POST /query`** after the API is running.
-
-### Example: health check
-
-```bash
-curl -s http://localhost:8000/health
-```
-
-Example response:
-
-```json
-{"status":"ok"}
-```
-
-### Example: RAG query
+After starting the API and ingesting the sample documents:
 
 ```bash
 curl -s -X POST http://localhost:8000/query \
@@ -196,19 +62,144 @@ curl -s -X POST http://localhost:8000/query \
   -d '{
     "query": "What is the deployment approval process?",
     "top_k": 5,
-    "filters": {"doc_type": "policies"}
+    "filters": {
+      "doc_type": "policies"
+    }
   }'
 ```
 
-**Typical response shape** (`RagQueryResponse`):
+The response contains:
 
-- **`answer`** — string (grounded answer, or a short fallback if retrieval is insufficient).
-- **`citations`** — list of `{ chunk_id, document_id, chunk_text_snippet, score }`.
-- **`retrieved_chunks`** — list of `{ chunk_id, document_id, chunk_text_snippet, score }` (aligned with what supported the answer when the LLM path runs).
+- `answer`: a grounded response or a fallback when the available context is insufficient.
+- `citations`: the chunk and document identifiers, text snippets, and scores supporting the answer.
+- `retrieved_chunks`: the ranked context supplied to the generation step.
 
-Exact text depends on your corpus and models.
+Exact content depends on the indexed documents and configured models.
 
-### Example: ingest a folder via API
+## API endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Check API availability |
+| `POST` | `/ingest/folder` | Parse, chunk, embed, and store supported files from a folder |
+| `GET` | `/documents` | List stored documents and metadata |
+| `GET` | `/documents/{document_id}` | Return one document and its chunks |
+| `POST` | `/query` | Retrieve relevant context and return a grounded answer |
+
+## Technology
+
+- **Language:** Python 3.11+
+- **API:** FastAPI, Uvicorn, Pydantic
+- **Data layer:** PostgreSQL, pgvector, SQLAlchemy 2
+- **Embeddings:** OpenAI `text-embedding-3-small` by default
+- **Generation:** OpenAI Chat Completions with a configurable model; `gpt-4o-mini` by default
+- **Environment:** Docker Compose and `.env` configuration
+- **Testing:** pytest
+
+## Repository structure
+
+```text
+vectra/
+├── app/
+│   ├── api/                 # FastAPI app and routes
+│   ├── core/                # Settings and logging
+│   ├── db/                  # SQLAlchemy models and sessions
+│   ├── embeddings/          # Embedding provider and service
+│   ├── ingestion/           # Loading, parsing, chunking, and persistence
+│   ├── rag/                 # Prompt construction and RAG orchestration
+│   ├── retrieval/           # Filters, vector search, and retrieval service
+│   ├── schemas/             # Request and response models
+│   └── services/            # Document read operations
+├── data/sample_docs/        # Example corpus
+├── scripts/                 # Database, ingestion, and sample-data utilities
+├── sql/                     # pgvector initialization
+├── tests/                   # Automated tests
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+## Local setup
+
+### 1. Create the environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+On Windows, activate the environment with:
+
+```powershell
+.venv\Scripts\activate
+```
+
+If `openai` is not yet included in `requirements.txt`, install it separately:
+
+```bash
+pip install openai
+```
+
+### 2. Configure environment variables
+
+```bash
+cp .env.example .env
+```
+
+Set `OPENAI_API_KEY` and confirm that `DATABASE_URL` uses the same host port exposed by Docker Compose.
+
+The default Compose configuration publishes PostgreSQL on port `5433`:
+
+```env
+DATABASE_URL=postgresql+psycopg2://vectra:vectra@localhost:5433/vectra
+OPENAI_API_KEY=your_api_key
+```
+
+Other configurable values include `EMBEDDING_MODEL`, `EMBEDDING_DIMENSION`, `OPENAI_CHAT_MODEL`, `LOG_LEVEL`, and `APP_ENV`.
+
+### 3. Start PostgreSQL and create the tables
+
+```bash
+docker compose up -d
+docker compose ps
+python scripts/create_tables.py
+```
+
+Wait until PostgreSQL is healthy before creating the tables.
+
+### 4. Ingest the sample corpus
+
+The repository includes example documents in `data/sample_docs/`.
+
+```bash
+python scripts/ingest_sample_docs.py
+```
+
+This step calls the embedding API and requires a valid `OPENAI_API_KEY`.
+
+### 5. Run the API
+
+```bash
+uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Open `http://localhost:8000/docs` for the interactive API documentation.
+
+## Additional examples
+
+### Health check
+
+```bash
+curl -s http://localhost:8000/health
+```
+
+```json
+{"status":"ok"}
+```
+
+### Ingest a folder through the API
 
 ```bash
 curl -s -X POST http://localhost:8000/ingest/folder \
@@ -220,80 +211,45 @@ curl -s -X POST http://localhost:8000/ingest/folder \
   }'
 ```
 
-Example response:
-
-```json
-{"documents_ingested":4,"chunks_created":<n>}
-```
-
-Folder ingestion **parses chunks, generates embeddings, and persists vectors** (requires `OPENAI_API_KEY`).
-
-### Example: list documents
+### Inspect stored documents
 
 ```bash
 curl -s http://localhost:8000/documents
+curl -s http://localhost:8000/documents/<document_id>
 ```
-
-### Example: document detail
-
-Replace `<uuid>` with a real `document_id` from the list response:
-
-```bash
-curl -s http://localhost:8000/documents/<uuid>
-```
-
-
-## API summary
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Liveness; returns `{ "status": "ok" }`. |
-| `POST` | `/ingest/folder` | Body: `folder_path`, `chunk_size`, `overlap`. Ingests supported files, creates chunks, **embeds and stores vectors**. Response: `documents_ingested`, `chunks_created`. |
-| `GET` | `/documents` | Lists stored documents (metadata; not full chunk text in the list). |
-| `GET` | `/documents/{document_id}` | Document detail including chunks. `404` if missing. |
-| `POST` | `/query` | Body: `query` (required), optional `top_k`, optional `filters` (e.g. `doc_type`, `team`, `source_path`). Returns grounded **`answer`**, **`citations`**, **`retrieved_chunks`**. Client errors `400`; upstream LLM failures `502` where applicable. |
-
-
-## Tech stack (MVP)
-
-- **Language:** Python 3.11+
-- **Web:** FastAPI, Uvicorn
-- **Data:** PostgreSQL, **pgvector**, SQLAlchemy 2
-- **Config:** Pydantic Settings, `.env`
-- **Embeddings / RAG (default):** OpenAI API (`openai` Python package)
-
 
 ## Testing
+
+Run the test suite with:
 
 ```bash
 pytest
 ```
 
-Tests cover chunking, ingestion, retrieval (including filters), health, and the query API. They favor **behavior** over heavy mocking where practical.
+The tests cover deterministic chunking, ingestion behavior, metadata-filtered retrieval, API health, and grounded-query behavior. Database-dependent tests require an available PostgreSQL instance with pgvector.
 
+## Design decisions
 
-## Future work
+- **Shared embedding configuration:** indexed chunks and user questions use the same model and vector dimension.
+- **Explicit persistence model:** documents, chunks, and embeddings remain separate, inspectable records.
+- **Thin API routes:** application logic is delegated to ingestion, retrieval, document, and RAG services.
+- **Retrieval before generation:** the language model receives only selected document context.
+- **Relevance-aware fallback:** weak retrieval does not trigger an unsupported generated answer.
+- **Visible source context:** API consumers can inspect the passages and scores used for each response.
 
-Plausible extensions (not in the current MVP):
+## Current scope
 
-- **Knowledge graph** — Entities and relationships for richer context and hybrid retrieval.
-- **Auth and permissions** — Tenant-scoped or document-level access control for retrieval.
-- **Background workers** — Async ingestion and re-embedding at scale.
-- **Evaluation** — Retrieval metrics, answer faithfulness, regression datasets.
-- **Observability** — Structured metrics, tracing, and production logging sinks.
-- **Caching** — Embedding and retrieval caches for latency and cost.
+Vectra is a working local and Docker-based RAG backend. The current version uses dense vector retrieval and exact metadata filters.
 
+The following capabilities are not part of the current implementation:
 
-## Design principles
+- Knowledge graphs or GraphRAG
+- Hybrid keyword and vector retrieval
+- Reranking
+- Authentication or multi-tenant permissions
+- Background ingestion workers
+- Production monitoring and distributed tracing
+- Cloud deployment
+- A user interface
 
-- **Separation of concerns** — Routes stay thin; ingestion, retrieval, and RAG live in services.
-- **One embedding space** — Same model settings for index and query vectors.
-- **Explicit data model** — Documents, chunks, and embeddings are first-class tables.
-- **Traceability** — RAG responses expose citations and retrieved snippets for inspection and demos.
-
-
-## License and Status
-
-This repository represents a **portfolio-grade MVP backend**, designed for local and containerized execution, technical evaluation, and system design discussions.
-
-It demonstrates production-style architecture and engineering practices, but does **not** reflect a fully hardened production system. Capabilities such as multi-tenant support, comprehensive observability (monitoring, alerting, tracing), and SRE-grade operational readiness are intentionally out of scope for this stage.
+The next practical milestone is a reproducible end-to-end evaluation covering retrieval relevance, answer grounding, and failure cases.
